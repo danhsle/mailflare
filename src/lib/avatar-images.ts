@@ -1,5 +1,6 @@
 const MAX_STORED_AVATAR_SIZE = 1024 * 1024;
 const MAX_PREVIEW_AVATAR_SIZE = 32 * 1024;
+const ALLOWED_OPTIMIZED_AVATAR_TYPES = new Set(["image/webp", "image/png", "image/jpeg"]);
 
 export function avatarPreviewKeyFor(key: string): string {
 	return `${key}:preview`;
@@ -9,7 +10,7 @@ export function getOptimizedAvatarFiles(form: FormData): { full: File; preview: 
 	const full = form.get("file");
 	const preview = form.get("preview");
 	if (!(full instanceof File) || !(preview instanceof File)) return null;
-	if (full.type !== "image/webp" || preview.type !== "image/webp") return null;
+	if (!ALLOWED_OPTIMIZED_AVATAR_TYPES.has(full.type) || !ALLOWED_OPTIMIZED_AVATAR_TYPES.has(preview.type)) return null;
 	if (!full.size || full.size > MAX_STORED_AVATAR_SIZE) return null;
 	if (!preview.size || preview.size > MAX_PREVIEW_AVATAR_SIZE) return null;
 	return { full, preview };
@@ -22,10 +23,10 @@ export async function storeAvatarImages(
 	preview: File,
 ): Promise<void> {
 	await bucket.put(avatarPreviewKeyFor(key), await preview.arrayBuffer(), {
-		httpMetadata: { contentType: "image/webp" },
+		httpMetadata: { contentType: preview.type },
 	});
 	await bucket.put(key, await full.arrayBuffer(), {
-		httpMetadata: { contentType: "image/webp" },
+		httpMetadata: { contentType: full.type },
 	});
 }
 
@@ -47,12 +48,9 @@ export async function getAvatarImageResponse(
 		"Content-Type": object.httpMetadata?.contentType ?? "application/octet-stream",
 		"X-Content-Type-Options": "nosniff",
 		"Content-Security-Policy": "default-src 'none'; img-src 'self'; sandbox",
-		// Uploads change the URL's version. Unversioned URLs refresh within five minutes
-		// without an authenticated DB/storage round trip on every component remount.
 		"Cache-Control": url.searchParams.has("v")
 			? "private, max-age=31536000, immutable"
 			: "private, max-age=300",
-		// The same URL can resolve to different images after switching accounts.
 		Vary: "Cookie, Authorization",
 		ETag: object.httpEtag,
 	});
