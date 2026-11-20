@@ -1,18 +1,26 @@
 const FULL_AVATAR_EDGE = 512;
 const PREVIEW_AVATAR_EDGE = 16;
 const ALLOWED_SOURCE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const ALLOWED_OUTPUT_TYPES = new Set(["image/webp", "image/png", "image/jpeg"]);
 export const MAX_SOURCE_AVATAR_SIZE = 10 * 1024 * 1024;
 
 function canvasBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
 	return new Promise((resolve, reject) => {
 		canvas.toBlob((blob) => {
-			if (!blob || blob.type !== "image/webp") {
-				reject(new Error("Unable to process this image"));
+			// Safari may ignore the requested WebP format and return a valid PNG.
+			// Use the MIME type the browser actually encoded instead of rejecting it.
+			if (!blob || !blob.size || !ALLOWED_OUTPUT_TYPES.has(blob.type)) {
+				reject(new Error("Your browser could not encode this image. Try another image or browser."));
 				return;
 			}
 			resolve(blob);
 		}, "image/webp", quality);
 	});
+}
+
+function fileNameFor(blob: Blob, prefix: string): string {
+	const extension = blob.type === "image/webp" ? "webp" : blob.type === "image/jpeg" ? "jpg" : "png";
+	return `${prefix}.${extension}`;
 }
 
 async function resizeAvatar(image: ImageBitmap, maxEdge: number, quality: number): Promise<Blob> {
@@ -35,15 +43,15 @@ export async function appendOptimizedAvatar(form: FormData, source: File): Promi
 	try {
 		image = await createImageBitmap(source);
 	} catch {
-		throw new Error("Unable to process this image");
+		throw new Error("Your browser could not read this image. Try exporting it as PNG or JPEG.");
 	}
 	try {
 		const [full, preview] = await Promise.all([
 			resizeAvatar(image, FULL_AVATAR_EDGE, 0.85),
 			resizeAvatar(image, PREVIEW_AVATAR_EDGE, 0.7),
 		]);
-		form.set("file", full, "avatar.webp");
-		form.set("preview", preview, "avatar-preview.webp");
+		form.set("file", full, fileNameFor(full, "avatar"));
+		form.set("preview", preview, fileNameFor(preview, "avatar-preview"));
 	} finally {
 		image.close();
 	}
